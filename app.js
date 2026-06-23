@@ -1,19 +1,22 @@
 const cluePalette = [
-  "#dfdfda",
-  "#f1faee",
-  "#a8dadc",
-  "#c8ddec",
-  "#d8d2ea",
-  "#f3d9d4",
-  "#f0e4b8",
-  "#dce8c8",
-  "#e7d6ec",
+  "#16a34a",
+  "#432dd7",
+  "#dc2626",
+  "#f97316",
+  "#06b6d4",
+  "#2563eb",
+  "#7c3aed",
+  "#d97706",
+  "#0891b2",
+  "#f43f5e",
   "#d9d3c8",
 ];
 
 const state = {
   size: 9,
   minesPerLine: 1,
+  rowMines: Array(9).fill(1),
+  columnMines: Array(9).fill(1),
   cages: [],
   markedMines: new Set(),
   selected: new Set(),
@@ -30,6 +33,8 @@ const el = {
   sizeInput: document.querySelector("#sizeInput"),
   mineInput: document.querySelector("#mineInput"),
   newBoardBtn: document.querySelector("#newBoardBtn"),
+  rowMineList: document.querySelector("#rowMineList"),
+  columnMineList: document.querySelector("#columnMineList"),
   clueInput: document.querySelector("#clueInput"),
   selectionCount: document.querySelector("#selectionCount"),
   makeCageBtn: document.querySelector("#makeCageBtn"),
@@ -62,6 +67,40 @@ const el = {
   jsonBox: document.querySelector("#jsonBox"),
 };
 
+const boardWrap = document.querySelector("#boardWrap");
+if (boardWrap && el.solutionControls) {
+  boardWrap.prepend(el.solutionControls);
+}
+
+document.querySelector(".mine-section h2").textContent = "地雷标记";
+el.makeCageBtn.textContent = "生成 Cage";
+el.updateClueBtn.textContent = "更新雷数";
+el.joinCageBtn.textContent = "加入 Cage";
+el.removeFromCageBtn.textContent = "踢出 Cage";
+el.clearSelectionBtn.textContent = "清空选择";
+el.toggleMineBtn.classList.add("icon-button");
+el.toggleMineBtn.innerHTML = '<span class="mine-icon" aria-hidden="true"></span><span>标记/取消</span>';
+el.clearMinesBtn.textContent = "清空标记";
+el.validateBtn.textContent = "验证唯一解";
+el.hideSolutionBtn.textContent = "隐藏解";
+document.querySelector(".section .hint").textContent = "数字: 生成 Cage\nI: 加入 Cage\nO: 踢出 Cage";
+document.querySelector(".mine-section .hint").textContent = "M: 标记地雷/取消";
+
+document.querySelectorAll(".panel .section .hint").forEach((hint) => {
+  hint.classList.add("module-shortcut");
+});
+const shortcutPanel = document.createElement("section");
+shortcutPanel.className = "section shortcut-panel";
+shortcutPanel.innerHTML = `
+  <h2>快捷键</h2>
+  <p class="hint shortcut-list">数字: 生成对应雷数的 Cage
+I: 加入 Cage
+O: 踢出 Cage
+M: 标记地雷/取消
+按住Shift: 连选</p>
+`;
+document.querySelector(".panel").appendChild(shortcutPanel);
+
 function keyOf(r, c) {
   return `${r},${c}`;
 }
@@ -91,6 +130,43 @@ function topLeft(cells) {
   return cells.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1])[0];
 }
 
+function sum(values) {
+  return values.reduce((total, value) => total + value, 0);
+}
+
+function normalizeMineList(value, size, fallback = 1) {
+  if (Array.isArray(value)) {
+    return Array.from({ length: size }, (_, index) => Number(value[index] ?? fallback));
+  }
+  const count = Number(value ?? fallback);
+  return Array(size).fill(Number.isFinite(count) ? count : fallback);
+}
+
+function getUniformValue(values) {
+  return values.every((value) => value === values[0]) ? values[0] : null;
+}
+
+function getLineMineErrors() {
+  const errors = [];
+  const size = state.size;
+  state.rowMines.forEach((value, index) => {
+    if (!Number.isInteger(value) || value < 0 || value > size) {
+      errors.push(`第 ${index + 1} 行雷数必须在 0 到 ${size} 之间。`);
+    }
+  });
+  state.columnMines.forEach((value, index) => {
+    if (!Number.isInteger(value) || value < 0 || value > size) {
+      errors.push(`第 ${index + 1} 列雷数必须在 0 到 ${size} 之间。`);
+    }
+  });
+  const rowTotal = sum(state.rowMines);
+  const columnTotal = sum(state.columnMines);
+  if (rowTotal !== columnTotal) {
+    errors.push(`行雷数之和 ${rowTotal} 不等于列雷数之和 ${columnTotal}。`);
+  }
+  return errors;
+}
+
 function setStatus(text, kind = "neutral") {
   el.statusBox.textContent = text;
   el.statusBox.className = `status ${kind}`;
@@ -104,6 +180,8 @@ function clearSolutionPreview() {
 function resetBoard() {
   state.size = Number(el.sizeInput.value);
   state.minesPerLine = Number(el.mineInput.value);
+  state.rowMines = Array(state.size).fill(state.minesPerLine);
+  state.columnMines = Array(state.size).fill(state.minesPerLine);
   state.cages = [];
   state.markedMines.clear();
   state.selected.clear();
@@ -280,20 +358,115 @@ function selectCage(id) {
   const cage = getCage(id);
   if (!cage) return;
   state.activeCageId = id;
-  state.selected = new Set(cage.cells.map((cell) => keyOf(cell[0], cell[1])));
+  state.selected.clear();
   el.clueInput.value = cage.clue;
   render();
 }
 
+function renderLineMineEditors() {
+  renderLineMineList(el.rowMineList, state.rowMines, "row");
+  renderLineMineList(el.columnMineList, state.columnMines, "column");
+}
+
+function renderLineMineList(container, values, type) {
+  container.innerHTML = "";
+  const max = state.size;
+  values.forEach((value, index) => {
+    const label = document.createElement("label");
+    label.className = "line-mine-field";
+
+    const caption = document.createElement("span");
+    caption.textContent = type === "row" ? `R${index + 1}` : `C${index + 1}`;
+
+    const input = document.createElement("input");
+    input.type = "number";
+    input.min = "0";
+    input.max = String(max);
+    input.step = "1";
+    input.value = String(value);
+    input.addEventListener("input", () => {
+      const next = Number(input.value);
+      values[index] = Number.isInteger(next) ? next : NaN;
+      state.minesPerLine = getUniformValue(state.rowMines) ?? state.rowMines[0] ?? 1;
+      clearSolutionPreview();
+      renderMetaOnly();
+      renderSolutionControls();
+      renderBoard();
+      renderJson();
+    });
+
+    const control = document.createElement("div");
+    control.className = "line-mine-control";
+    const stepper = document.createElement("div");
+    stepper.className = "line-mine-stepper";
+    const up = document.createElement("button");
+    up.type = "button";
+    up.className = "line-step up";
+    up.setAttribute("aria-label", "增加雷数");
+    const down = document.createElement("button");
+    down.type = "button";
+    down.className = "line-step down";
+    down.setAttribute("aria-label", "减少雷数");
+    up.addEventListener("click", () => {
+      input.stepUp();
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    down.addEventListener("click", () => {
+      input.stepDown();
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    stepper.append(up, down);
+    control.append(input, stepper);
+    label.append(caption, control);
+    container.appendChild(label);
+  });
+}
+
 function renderBoard() {
   const size = state.size;
-  const cellSize = size <= 6 ? 70 : 56;
+  const cellSize = size <= 6 ? 78 : 60;
+  const headerSize = 30;
   const map = cellToCageMap();
   const previewSolution = state.activeSolutionIndex >= 0 ? state.validationSolutions[state.activeSolutionIndex] : null;
   const previewMines = previewSolution ? new Set(previewSolution.map((cell) => keyOf(cell[0], cell[1]))) : new Set();
-  el.board.style.gridTemplateColumns = `repeat(${size}, ${cellSize}px)`;
-  el.board.style.gridTemplateRows = `repeat(${size}, ${cellSize}px)`;
+  const boardSize = size * cellSize;
+  el.board.style.width = `${boardSize + headerSize}px`;
+  el.board.style.height = `${boardSize + headerSize}px`;
   el.board.innerHTML = "";
+
+  const lineErrors = getLineMineErrors();
+  const lineSettingsInvalid = lineErrors.length > 0;
+  for (let c = 0; c < size; c++) {
+    const header = document.createElement("div");
+    header.className = "line-header column-header";
+    if (lineSettingsInvalid) header.classList.add("invalid");
+    header.textContent = state.columnMines[c];
+    header.style.left = `${headerSize + c * cellSize}px`;
+    header.style.top = "0";
+    header.style.width = `${cellSize}px`;
+    header.style.height = `${headerSize}px`;
+    el.board.appendChild(header);
+  }
+
+  for (let r = 0; r < size; r++) {
+    const header = document.createElement("div");
+    header.className = "line-header row-header";
+    if (lineSettingsInvalid) header.classList.add("invalid");
+    header.textContent = state.rowMines[r];
+    header.style.left = "0";
+    header.style.top = `${headerSize + r * cellSize}px`;
+    header.style.width = `${headerSize}px`;
+    header.style.height = `${cellSize}px`;
+    el.board.appendChild(header);
+  }
+
+  const grid = document.createElement("div");
+  grid.className = "board-grid";
+  grid.style.left = `${headerSize}px`;
+  grid.style.top = `${headerSize}px`;
+  grid.style.gridTemplateColumns = `repeat(${size}, ${cellSize}px)`;
+  grid.style.gridTemplateRows = `repeat(${size}, ${cellSize}px)`;
+  el.board.appendChild(grid);
 
   for (let r = 0; r < size; r++) {
     for (let c = 0; c < size; c++) {
@@ -310,7 +483,10 @@ function renderBoard() {
       if (cage?.clue === 0) cell.classList.add("zero");
       if (state.selected.has(key)) cell.classList.add("selected");
       if (cage && cage.id === state.activeCageId) cell.classList.add("active-cage");
-      if (cage) cell.style.backgroundColor = colorForClue(cage.clue);
+      if (cage) {
+        const cageColor = colorForClue(cage.clue);
+        cell.style.setProperty("--cage-color", cageColor);
+      }
 
       const top = r === 0 || map.get(keyOf(r - 1, c)) !== cageId;
       const right = c === size - 1 || map.get(keyOf(r, c + 1)) !== cageId;
@@ -322,10 +498,25 @@ function renderBoard() {
       if (left) cell.classList.add("bound-left");
 
       if (cage) {
+        [
+          ["top", top],
+          ["right", right],
+          ["bottom", bottom],
+          ["left", left],
+        ].forEach(([side, enabled]) => {
+          if (!enabled) return;
+          const boundary = document.createElement("span");
+          boundary.className = `cage-boundary ${side}`;
+          cell.appendChild(boundary);
+        });
+      }
+
+      if (cage) {
         const tl = topLeft(cage.cells);
         if (tl[0] === r && tl[1] === c) {
           const clue = document.createElement("span");
           clue.className = "clue";
+          clue.style.setProperty("--cage-color", colorForClue(cage.clue));
           clue.textContent = cage.clue;
           cell.appendChild(clue);
         }
@@ -334,7 +525,6 @@ function renderBoard() {
       if (state.markedMines.has(key)) {
         const mark = document.createElement("span");
         mark.className = "mine-mark";
-        mark.textContent = "X";
         cell.appendChild(mark);
       }
 
@@ -364,7 +554,7 @@ function renderBoard() {
       cell.addEventListener("dblclick", () => {
         if (cage) selectCage(cage.id);
       });
-      el.board.appendChild(cell);
+      grid.appendChild(cell);
     }
   }
 }
@@ -405,11 +595,16 @@ function renderCageList() {
     return;
   }
 
+  const summary = document.createElement("div");
+  summary.className = "cage-summary";
+  summary.textContent = `共 ${state.cages.length} 个 Cage`;
+  el.cageList.appendChild(summary);
+
   for (const cage of state.cages) {
     const card = document.createElement("div");
     card.className = "cage-card";
     if (cage.id === state.activeCageId) card.classList.add("active");
-    card.style.borderLeftColor = colorForClue(cage.clue);
+    card.style.setProperty("--cage-color", colorForClue(cage.clue));
     card.innerHTML = `
       <div class="cage-card-main"><strong>Cage ${cage.id}</strong><br><small>${cage.cells.length} 格</small></div>
       <div class="cage-card-actions">
@@ -417,7 +612,19 @@ function renderCageList() {
         <button class="delete-cage" type="button" data-delete-cage="${cage.id}">删除</button>
       </div>
     `;
+    card.innerHTML = `
+      <div class="cage-badge">${String(cage.id).padStart(2, "0")}</div>
+      <div class="cage-card-main"><strong>雷数: ${cage.clue}</strong><small>格子: ${cage.cells.length}</small></div>
+      <div class="cage-card-actions">
+        <button class="edit-cage" type="button" data-edit-cage="${cage.id}" aria-label="编辑 Cage">✎</button>
+        <button class="delete-cage" type="button" data-delete-cage="${cage.id}" aria-label="删除 Cage"></button>
+      </div>
+    `;
     card.addEventListener("click", () => selectCage(cage.id));
+    card.querySelector(".edit-cage").addEventListener("click", (event) => {
+      event.stopPropagation();
+      selectCage(cage.id);
+    });
     card.querySelector(".delete-cage").addEventListener("click", (event) => {
       event.stopPropagation();
       state.cages = state.cages.filter((item) => item.id !== cage.id);
@@ -432,16 +639,17 @@ function renderCageList() {
 }
 
 function getMineStats() {
-  const totalRequired = state.size * state.minesPerLine;
+  const totalRequired = sum(state.rowMines);
+  const columnTotal = sum(state.columnMines);
   const cagePlaced = state.cages.reduce((sum, cage) => sum + cage.clue, 0);
   const marked = state.markedMines.size;
   const cageRemaining = totalRequired - cagePlaced;
   const markRemaining = totalRequired - marked;
-  return { totalRequired, cagePlaced, marked, cageRemaining, markRemaining };
+  return { totalRequired, columnTotal, cagePlaced, marked, cageRemaining, markRemaining };
 }
 
 function getMineConflicts() {
-  const conflicts = [];
+  const conflicts = getLineMineErrors();
   const rowCounts = Array(state.size).fill(0);
   const colCounts = Array(state.size).fill(0);
   for (const key of state.markedMines) {
@@ -453,10 +661,10 @@ function getMineConflicts() {
   }
 
   rowCounts.forEach((count, index) => {
-    if (count > state.minesPerLine) conflicts.push(`第 ${index + 1} 行标雷 ${count} 个，超过 ${state.minesPerLine}。`);
+    if (count > state.rowMines[index]) conflicts.push(`第 ${index + 1} 行标雷 ${count} 个，超过行雷数 ${state.rowMines[index]}。`);
   });
   colCounts.forEach((count, index) => {
-    if (count > state.minesPerLine) conflicts.push(`第 ${index + 1} 列标雷 ${count} 个，超过 ${state.minesPerLine}。`);
+    if (count > state.columnMines[index]) conflicts.push(`第 ${index + 1} 列标雷 ${count} 个，超过列雷数 ${state.columnMines[index]}。`);
   });
 
   for (const cage of state.cages) {
@@ -481,9 +689,13 @@ function getMineConflicts() {
 
 function renderMineInfo() {
   const stats = getMineStats();
-  el.totalMineText.textContent = String(stats.totalRequired);
-  el.cageMineText.textContent = `${stats.cagePlaced} / 剩余 ${stats.cageRemaining}`;
-  el.markMineText.textContent = `${stats.marked} / 剩余 ${stats.markRemaining}`;
+  const labels = el.mineProgress.querySelectorAll("strong");
+  if (labels[0]) labels[0].textContent = "总雷数";
+  if (labels[1]) labels[1].textContent = "Cage 雷数";
+  if (labels[2]) labels[2].textContent = "标记雷数";
+  el.totalMineText.textContent = stats.totalRequired === stats.columnTotal ? String(stats.totalRequired) : `行 ${stats.totalRequired} / 列 ${stats.columnTotal}`;
+  el.cageMineText.textContent = `${stats.cagePlaced} / ${stats.totalRequired}`;
+  el.markMineText.textContent = `${stats.marked} / ${stats.totalRequired}`;
   const conflicts = getMineConflicts();
   let text = "";
   let className = "mine-info";
@@ -506,7 +718,7 @@ function renderMetaOnly() {
   const assigned = [...cellToCageMap().keys()].length;
   const total = state.size * state.size;
   el.selectionCount.textContent = `${state.selected.size} 格`;
-  el.boardTitle.textContent = `${state.size} x ${state.size} / 每行每列 ${state.minesPerLine} 雷`;
+  el.boardTitle.textContent = `${state.size} x ${state.size}`;
   el.coverageText.textContent = assigned === total ? "已覆盖全部格子" : `未分配 ${total - assigned} 格`;
   renderMineInfo();
 }
@@ -529,6 +741,7 @@ function renderSolutionControls() {
 
 function render() {
   renderMetaOnly();
+  renderLineMineEditors();
   renderSolutionControls();
   renderBoard();
   renderCageList();
@@ -539,8 +752,10 @@ function exportData() {
   return {
     name: "killer_minedoku_custom",
     size: state.size,
-    minesPerRow: state.minesPerLine,
-    minesPerColumn: state.minesPerLine,
+    minesPerRow: getUniformValue(state.rowMines) ?? state.rowMines.slice(),
+    minesPerColumn: getUniformValue(state.columnMines) ?? state.columnMines.slice(),
+    rowMines: state.rowMines.slice(),
+    columnMines: state.columnMines.slice(),
     markedMines: [...state.markedMines]
       .map(parseKey)
       .sort((a, b) => a[0] - b[0] || a[1] - b[1])
@@ -561,7 +776,9 @@ function importData(data) {
     throw new Error("JSON 格式不正确。");
   }
   state.size = data.size;
-  state.minesPerLine = Number(data.minesPerRow ?? data.minesPerColumn ?? 1);
+  state.rowMines = normalizeMineList(data.rowMines ?? data.minesPerRows ?? data.minesPerRow, state.size, 1);
+  state.columnMines = normalizeMineList(data.columnMines ?? data.minesPerColumns ?? data.minesPerColumn, state.size, getUniformValue(state.rowMines) ?? 1);
+  state.minesPerLine = getUniformValue(state.rowMines) ?? state.rowMines[0] ?? 1;
   state.cages = data.cages.map((cage, index) => ({
     id: Number(cage.id ?? index + 1),
     clue: Number(cage.clue),
@@ -599,14 +816,9 @@ function combinations(items, k) {
 
 function validatePuzzle() {
   const size = state.size;
-  const minesPerLine = state.minesPerLine;
   const map = cellToCageMap();
   const total = size * size;
-  const errors = [];
-
-  if (!Number.isInteger(minesPerLine) || minesPerLine < 1 || minesPerLine >= size) {
-    errors.push("每行/列雷数必须在 1 到 宫格数-1 之间。");
-  }
+  const errors = getLineMineErrors();
   if (map.size !== total) errors.push(`还有 ${total - map.size} 个格子没有分配 cage。`);
 
   const seen = new Set();
@@ -627,7 +839,7 @@ function validatePuzzle() {
   }
 
   const started = performance.now();
-  const result = countSolutions(size, minesPerLine, state.cages, 12);
+  const result = countSolutions(size, state.rowMines, state.columnMines, state.cages, 12);
   const elapsed = Math.round(performance.now() - started);
   state.validationSolutions = result.solutions;
   state.activeSolutionIndex = result.solutions.length ? 0 : -1;
@@ -644,14 +856,15 @@ function validatePuzzle() {
   render();
 }
 
-function countSolutions(size, minesPerLine, cages, limit) {
+function countSolutions(size, rowMines, columnMines, cages, limit) {
   const cageIndex = new Map();
   cages.forEach((cage, index) => {
     cage.cells.forEach((cell) => cageIndex.set(keyOf(cell[0], cell[1]), index));
   });
 
-  const rowPatterns = combinations([...Array(size).keys()], minesPerLine);
-  const startCols = Array(size).fill(minesPerLine);
+  const columns = [...Array(size).keys()];
+  const rowPatterns = rowMines.map((count) => combinations(columns, count));
+  const startCols = columnMines.slice();
   const startCages = cages.map((cage) => cage.clue);
   const solutions = [];
   const futureCells = Array.from({ length: size }, () => Array(cages.length).fill(0));
@@ -670,7 +883,7 @@ function countSolutions(size, minesPerLine, cages, limit) {
     }
 
     const rowsLeft = size - row - 1;
-    for (const pattern of rowPatterns) {
+    for (const pattern of rowPatterns[row]) {
       if (solutions.length >= limit) return;
       if (pattern.some((col) => colRemaining[col] <= 0)) continue;
 
@@ -728,9 +941,12 @@ function createPuzzleSvg() {
   const size = state.size;
   const cellSize = size <= 6 ? 78 : 62;
   const margin = 14;
+  const headerSize = 30;
+  const boardX = margin + headerSize;
+  const boardY = margin + headerSize;
   const boardSize = size * cellSize;
-  const width = boardSize + margin * 2;
-  const height = boardSize + margin * 2;
+  const width = boardSize + headerSize + margin * 2;
+  const height = boardSize + headerSize + margin * 2;
   const map = cellToCageMap();
   const lines = [];
 
@@ -743,32 +959,45 @@ function createPuzzleSvg() {
   lines.push("</pattern>");
   lines.push("</defs>");
   lines.push('<rect width="100%" height="100%" fill="#f7fbf7"/>');
-  lines.push(`<rect x="${margin}" y="${margin}" width="${boardSize}" height="${boardSize}" fill="#fffdfa"/>`);
+  lines.push(`<rect x="${boardX}" y="${boardY}" width="${boardSize}" height="${boardSize}" fill="#fffdfa"/>`);
+
+  for (let c = 0; c < size; c++) {
+    const x = boardX + c * cellSize + cellSize / 2;
+    const y = margin + headerSize - 7;
+    lines.push(`<text x="${x}" y="${y}" fill="#1d3557" font-family="Inter, Segoe UI, Microsoft YaHei, Arial, sans-serif" font-size="15" font-weight="800" text-anchor="middle">${escapeXml(state.columnMines[c])}</text>`);
+  }
+
+  for (let r = 0; r < size; r++) {
+    const x = margin + headerSize - 8;
+    const y = boardY + r * cellSize + cellSize / 2 + 5;
+    lines.push(`<text x="${x}" y="${y}" fill="#1d3557" font-family="Inter, Segoe UI, Microsoft YaHei, Arial, sans-serif" font-size="15" font-weight="800" text-anchor="end">${escapeXml(state.rowMines[r])}</text>`);
+  }
 
   for (let r = 0; r < size; r++) {
     for (let c = 0; c < size; c++) {
       const key = keyOf(r, c);
       const cageId = map.get(key);
       const cage = cageId ? getCage(cageId) : null;
-      const x = margin + c * cellSize;
-      const y = margin + r * cellSize;
+      const x = boardX + c * cellSize;
+      const y = boardY + r * cellSize;
       const fill = cage ? colorForClue(cage.clue) : "url(#unassigned-hatch)";
       lines.push(`<rect x="${x}" y="${y}" width="${cellSize}" height="${cellSize}" fill="${fill}"/>`);
     }
   }
 
   for (let i = 1; i < size; i++) {
-    const p = margin + i * cellSize;
-    lines.push(`<line x1="${p}" y1="${margin}" x2="${p}" y2="${margin + boardSize}" stroke="#b8b2a8" stroke-width="1"/>`);
-    lines.push(`<line x1="${margin}" y1="${p}" x2="${margin + boardSize}" y2="${p}" stroke="#b8b2a8" stroke-width="1"/>`);
+    const pX = boardX + i * cellSize;
+    const pY = boardY + i * cellSize;
+    lines.push(`<line x1="${pX}" y1="${boardY}" x2="${pX}" y2="${boardY + boardSize}" stroke="#b8b2a8" stroke-width="1"/>`);
+    lines.push(`<line x1="${boardX}" y1="${pY}" x2="${boardX + boardSize}" y2="${pY}" stroke="#b8b2a8" stroke-width="1"/>`);
   }
 
   for (let r = 0; r < size; r++) {
     for (let c = 0; c < size; c++) {
       const key = keyOf(r, c);
       const cageId = map.get(key);
-      const x = margin + c * cellSize;
-      const y = margin + r * cellSize;
+      const x = boardX + c * cellSize;
+      const y = boardY + r * cellSize;
       const x2 = x + cellSize;
       const y2 = y + cellSize;
       const top = r === 0 || map.get(keyOf(r - 1, c)) !== cageId;
@@ -785,22 +1014,22 @@ function createPuzzleSvg() {
   for (const cage of state.cages) {
     if (!cage.cells.length) continue;
     const [r, c] = topLeft(cage.cells);
-    const x = margin + c * cellSize + 8;
-    const y = margin + r * cellSize + (size <= 6 ? 28 : 24);
+    const x = boardX + c * cellSize + 8;
+    const y = boardY + r * cellSize + (size <= 6 ? 28 : 24);
     lines.push(`<text x="${x}" y="${y}" fill="#171717" font-family="Inter, Segoe UI, Microsoft YaHei, Arial, sans-serif" font-size="${size <= 6 ? 27 : 23}" font-weight="500">${escapeXml(cage.clue)}</text>`);
   }
 
   for (const key of [...state.markedMines].sort()) {
     const [r, c] = parseKey(key);
     if (r < 0 || c < 0 || r >= size || c >= size) continue;
-    const cx = margin + c * cellSize + cellSize / 2;
-    const cy = margin + r * cellSize + cellSize / 2;
+    const cx = boardX + c * cellSize + cellSize / 2;
+    const cy = boardY + r * cellSize + cellSize / 2;
     const half = cellSize * 0.22;
     lines.push(`<line x1="${cx - half}" y1="${cy - half}" x2="${cx + half}" y2="${cy + half}" stroke="#e63946" stroke-width="${Math.max(5, cellSize * 0.08)}" stroke-linecap="round"/>`);
     lines.push(`<line x1="${cx + half}" y1="${cy - half}" x2="${cx - half}" y2="${cy + half}" stroke="#e63946" stroke-width="${Math.max(5, cellSize * 0.08)}" stroke-linecap="round"/>`);
   }
 
-  lines.push(`<rect x="${margin}" y="${margin}" width="${boardSize}" height="${boardSize}" fill="none" stroke="#171717" stroke-width="6"/>`);
+  lines.push(`<rect x="${boardX}" y="${boardY}" width="${boardSize}" height="${boardSize}" fill="none" stroke="#171717" stroke-width="6"/>`);
   lines.push("</svg>");
   return lines.join("\n");
 }
@@ -868,8 +1097,9 @@ el.importInput.addEventListener("change", async (event) => {
   }
 });
 el.importTextBtn.addEventListener("click", () => {
+  const source = el.jsonBox.value.trim() || window.prompt("粘贴 JSON 文本") || "";
   try {
-    importData(JSON.parse(el.jsonBox.value));
+    importData(JSON.parse(source));
   } catch (error) {
     setStatus(error.message, "bad");
   }

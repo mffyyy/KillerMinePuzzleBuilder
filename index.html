@@ -15,28 +15,15 @@
             <h1>出题工具</h1>
           </div>
           <div class="export-actions">
+            <label class="import-label">
+              导入 JSON
+              <input id="importInput" type="file" accept="application/json,.json" />
+            </label>
+            <button id="importTextBtn" class="ghost" type="button">导入文本</button>
             <button id="exportBtn" class="ghost" type="button">导出 JSON</button>
             <button id="exportSvgBtn" class="ghost" type="button">导出 SVG</button>
           </div>
         </header>
-
-        <section class="section">
-          <h2>棋盘</h2>
-          <div class="form-grid">
-            <label>
-              宫格数
-              <select id="sizeInput">
-                <option value="6">6 x 6</option>
-                <option value="9" selected>9 x 9</option>
-              </select>
-            </label>
-            <label>
-              每行/列雷数
-              <input id="mineInput" type="number" min="1" max="8" value="1" />
-            </label>
-          </div>
-          <button id="newBoardBtn" class="primary" type="button">新建棋盘</button>
-        </section>
 
         <section class="section">
           <h2>编辑 Cage</h2>
@@ -66,7 +53,7 @@
             <button id="toggleMineBtn" class="danger-action" type="button">标雷/取消</button>
             <button id="clearMinesBtn" type="button">清空标雷</button>
           </div>
-          <p class="hint">选择格子后按 M 也可以标雷/取消。标雷后会自动清空选择。</p>
+          <p class="hint">选择格子后按 M 也可以标雷/取消。</p>
         </section>
 
         <section class="section">
@@ -74,31 +61,46 @@
           <button id="validateBtn" class="primary" type="button">验证唯一解</button>
           <div id="statusBox" class="status neutral">尚未验证</div>
         </section>
-
-        <section class="section grow">
-          <h2>Cage 列表</h2>
-          <div id="cageList" class="cage-list"></div>
-        </section>
       </aside>
 
       <section class="workspace">
         <div class="toolbar">
           <div>
-            <strong id="boardTitle">9 x 9 / 每行每列 1 雷</strong>
+            <strong id="boardTitle">9 x 9</strong>
             <span id="coverageText">未分配 81 格</span>
           </div>
-          <label class="import-label">
-            导入 JSON
-            <input id="importInput" type="file" accept="application/json,.json" />
-          </label>
-          <button id="importTextBtn" type="button">从文本导入</button>
         </div>
-        <div id="mineProgress" class="mine-progress">
-          <div><strong>总雷数</strong><span id="totalMineText">9</span></div>
-          <div><strong>Cage 已布设</strong><span id="cageMineText">0 / 剩余 9</span></div>
-          <div><strong>标雷已布设</strong><span id="markMineText">0 / 剩余 9</span></div>
-        </div>
-        <div id="mineInfoTop" class="mine-info top-mine-info">暂无标雷冲突。</div>
+        <section class="board-settings">
+          <div class="board-setting-main">
+            <label>
+              宫格数
+              <select id="sizeInput">
+                <option value="6">6 x 6</option>
+                <option value="9" selected>9 x 9</option>
+              </select>
+            </label>
+            <label>
+              默认行/列雷数
+              <input id="mineInput" type="number" min="0" max="8" value="1" />
+            </label>
+            <button id="newBoardBtn" class="primary compact-action" type="button">新建</button>
+            <div id="mineProgress" class="mine-progress">
+              <div><strong>总雷</strong><span id="totalMineText">9</span></div>
+              <div><strong>Cage</strong><span id="cageMineText">0 / 余 9</span></div>
+              <div><strong>标雷</strong><span id="markMineText">0 / 余 9</span></div>
+            </div>
+          </div>
+          <div class="line-mine-editor">
+            <div>
+              <h3>行雷数</h3>
+              <div id="rowMineList" class="line-mine-list"></div>
+            </div>
+            <div>
+              <h3>列雷数</h3>
+              <div id="columnMineList" class="line-mine-list"></div>
+            </div>
+          </div>
+        </section>
         <div id="solutionControls" class="solution-controls hidden">
           <button id="prevSolutionBtn" type="button">上一解</button>
           <strong id="solutionLabel">解 1 / 1</strong>
@@ -108,8 +110,16 @@
         <div id="boardWrap" class="board-wrap">
           <div id="board" class="board" aria-label="Puzzle board"></div>
         </div>
-        <textarea id="jsonBox" class="json-box" spellcheck="false" placeholder="导出的 JSON 会显示在这里；也可以粘贴 JSON 后点击“从文本导入”。"></textarea>
+        <div id="mineInfoTop" class="mine-info top-mine-info">暂无标雷冲突。</div>
+        <textarea id="jsonBox" class="json-box" spellcheck="false" placeholder="导出的 JSON 会显示在这里；也可以粘贴 JSON 后点击“导入文本”。"></textarea>
       </section>
+
+      <aside class="cage-panel">
+        <section class="section grow">
+          <h2>Cage 列表</h2>
+          <div id="cageList" class="cage-list"></div>
+        </section>
+      </aside>
     </main>
 
     <script src="./app.js"></script>
