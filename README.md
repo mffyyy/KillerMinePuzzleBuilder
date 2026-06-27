@@ -2,9 +2,17 @@
 
 一个无依赖的本地网页出题工具，用于制作 Killer MineDoku / Minesweeper 风格的 cage 题面。支持独立行列雷数、cage 编辑、标雷检查、唯一解验证和 JSON 导入导出。
 
+## 在线使用
+
+可以直接打开 GitHub Pages 在线版本：
+
+https://mffyyy.github.io/KillerMinePuzzleBuilder/
+
+在网页中制作题面后，可以使用“导出 JSON”保存关卡数据，再导入到游戏项目中使用。
+
 ## 打开方式
 
-可以直接打开 `index.html`，也可以在本目录启动一个静态服务：
+如果需要本地运行，也可以直接打开 `index.html`，或在本目录启动一个静态服务：
 
 ```powershell
 python -m http.server 8778
